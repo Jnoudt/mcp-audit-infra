@@ -1,0 +1,87 @@
+name: Terraform Deploy (MCP Audit Infra)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.tf"
+      - ".github/workflows/tf-deploy.yml"
+      - "README.md"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**/*.tf"
+      - ".github/workflows/tf-deploy.yml"
+      - "README.md"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action to run"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - apply
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-dev
+  cancel-in-progress: false
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_USE_OIDC: true
+  ARM_USE_AZUREAD: true
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.17.2"
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        run: >-
+          terraform init -input=false
+          -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}"
+          -backend-config="storage_account_name=${{ vars.TF_STATE_SA }}"
+          -backend-config="container_name=${{ vars.TF_STATE_CONTAINER }}"
+          -backend-config="key=mcp-audit-infra-dev.tfstate"
+          -backend-config="use_oidc=true"
+          -backend-config="use_azuread_auth=true"
+
+      - name: Terraform Format and Validate
+        run: |
+          terraform fmt -check -recursive
+          terraform validate
+
+      - name: Terraform Plan
+        id: tfplan
+        run: terraform plan -input=false -out=tfplan.binary
+
+      - name: Terraform Apply
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_dispatch' && inputs.action == 'apply')
+        run: terraform apply -input=false tfplan.binary

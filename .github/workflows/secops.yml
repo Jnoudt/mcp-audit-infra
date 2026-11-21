@@ -1,0 +1,124 @@
+name: Security Checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  free-iac-checks:
+    name: Free IaC and security checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.17.2"
+
+      - name: Setup Trivy
+        # Immutable setup-trivy commit; version matches the locally verified scanner.
+        uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241
+        with:
+          version: v0.76.2
+
+      - name: Run Terraform and Trivy checks
+        shell: pwsh
+        run: ./scripts/check-iac.ps1
+
+  scan-configuration:
+    name: Detect optional scanner configuration
+    runs-on: ubuntu-latest
+    outputs:
+      mend_enabled: ${{ steps.detect.outputs.mend_enabled }}
+      checkmarx_enabled: ${{ steps.detect.outputs.checkmarx_enabled }}
+    steps:
+      - name: Detect configured commercial scanners
+        id: detect
+        env:
+          MEND_EMAIL: ${{ secrets.MEND_EMAIL }}
+          MEND_USER_KEY: ${{ secrets.MEND_USER_KEY }}
+          MEND_URL: ${{ vars.MEND_URL }}
+          MEND_ORGANIZATION: ${{ vars.MEND_ORGANIZATION }}
+          CX_CLIENT_ID: ${{ secrets.CX_CLIENT_ID }}
+          CX_CLIENT_SECRET: ${{ secrets.CX_CLIENT_SECRET }}
+          CX_BASE_URI: ${{ vars.CX_BASE_URI }}
+          CX_TENANT: ${{ vars.CX_TENANT }}
+        run: |
+          if [[ -n "$MEND_EMAIL" && -n "$MEND_USER_KEY" && -n "$MEND_URL" && -n "$MEND_ORGANIZATION" ]]; then
+            echo "mend_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mend_enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ -n "$CX_CLIENT_ID" && -n "$CX_CLIENT_SECRET" && -n "$CX_BASE_URI" && -n "$CX_TENANT" ]]; then
+            echo "checkmarx_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "checkmarx_enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  mend-oss-sca:
+    name: Mend OSS / SCA
+    needs: scan-configuration
+    if: needs.scan-configuration.outputs.mend_enabled == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      MEND_EMAIL: ${{ secrets.MEND_EMAIL }}
+      MEND_USER_KEY: ${{ secrets.MEND_USER_KEY }}
+      MEND_URL: ${{ vars.MEND_URL }}
+      MEND_ORGANIZATION: ${{ vars.MEND_ORGANIZATION }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install and verify Mend CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli_url="https://downloads.mend.io/cli/linux_amd64/mend"
+          cli_path="$RUNNER_TEMP/mend"
+          checksum_path="$RUNNER_TEMP/mend.sha256"
+
+          curl --fail --silent --show-error --location "$cli_url" --output "$cli_path"
+          curl --fail --silent --show-error --location "${cli_url}.sha256" --output "$checksum_path"
+          expected_hash="$(grep -Eo '[[:xdigit:]]{64}' "$checksum_path" | head -n 1)"
+          if [[ -z "$expected_hash" ]]; then
+            echo "Could not read Mend CLI SHA-256 checksum." >&2
+            exit 1
+          fi
+          printf '%s  %s\n' "$expected_hash" "$cli_path" | sha256sum --check --status
+          chmod 0755 "$cli_path"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Run Mend SCA dependency scan
+        run: mend dependencies --non-interactive
+
+  checkmarx-ast:
+    name: Checkmarx AST
+    needs: scan-configuration
+    if: needs.scan-configuration.outputs.checkmarx_enabled == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Checkmarx One scan
+        uses: Checkmarx/ast-github-action@58c998c5d78b3ecfa51e7cbde852d5565d5dea0b # v2.3.47
+        with:
+          base_uri: ${{ vars.CX_BASE_URI }}
+          cx_tenant: ${{ vars.CX_TENANT }}
+          cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          project_name: ${{ github.repository }}
+          branch: ${{ github.head_ref || github.ref_name }}
+          source_dir: .
