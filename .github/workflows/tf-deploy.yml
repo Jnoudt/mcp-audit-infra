@@ -16,15 +16,6 @@ on:
       - ".github/workflows/tf-deploy.yml"
       - "README.md"
   workflow_dispatch:
-    inputs:
-      action:
-        description: "Terraform action to run"
-        required: true
-        default: "plan"
-        type: choice
-        options:
-          - plan
-          - apply
 
 permissions:
   contents: read
@@ -40,6 +31,11 @@ env:
   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   ARM_USE_OIDC: true
   ARM_USE_AZUREAD: true
+  TF_VAR_sql_administrator_login: ${{ vars.SQL_ADMINISTRATOR_LOGIN }}
+  TF_VAR_sql_administrator_object_id: ${{ vars.SQL_ADMINISTRATOR_OBJECT_ID }}
+  TF_VAR_foundry_resource_id: ${{ vars.FOUNDRY_RESOURCE_ID }}
+  TF_VAR_foundry_openai_base_url: ${{ vars.FOUNDRY_OPENAI_BASE_URL }}
+  TF_VAR_foundry_model_deployment: ${{ vars.FOUNDRY_MODEL_DEPLOYMENT }}
 
 jobs:
   terraform:
@@ -79,9 +75,3 @@ jobs:
       - name: Terraform Plan
         id: tfplan
         run: terraform plan -input=false -out=tfplan.binary
-
-      - name: Terraform Apply
-        if: >-
-          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-          (github.event_name == 'workflow_dispatch' && inputs.action == 'apply')
-        run: terraform apply -input=false tfplan.binary

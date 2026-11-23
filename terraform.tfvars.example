@@ -1,0 +1,25 @@
+project_name           = "mcpaudit"
+environment            = "dev"
+location               = "southafricanorth"
+cosmos_database_name   = "mcp_audit_db"
+cosmos_container_name  = "audit_events"
+enable_cosmos_free_tier = true
+foundry_resource_id = ""
+foundry_openai_base_url = ""
+foundry_model_deployment = ""
+sql_database_name       = "ReconFlowDemo"
+enable_sql_free_tier    = true
+sql_firewall_allowlist  = []
+function_maximum_instance_count = 1
+
+# Required: set these to the Entra user, group, or service principal that administers SQL.
+sql_administrator_login      = "replace-with-entra-user-or-group"
+sql_administrator_object_id = "00000000-0000-0000-0000-000000000000"
+
+tags = {
+  project             = "mcp-audit-server"
+  managed_by          = "terraform"
+  owner               = "project-maintainers"
+  data_classification = "confidential"
+  tier                = "dev"
+}

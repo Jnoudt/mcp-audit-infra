@@ -1,6 +1,6 @@
 output "resource_group_name" {
-  description = "Provisioned Azure Resource Group name."
-  value       = azurerm_resource_group.main.name
+  description = "Azure Resource Group name hosting MCP Audit resources."
+  value       = data.azurerm_resource_group.main.name
 }
 
 output "function_app_name" {
@@ -31,6 +31,26 @@ output "cosmos_db_database_name" {
 output "cosmos_db_container_name" {
   description = "Cosmos DB SQL container name."
   value       = azurerm_cosmosdb_sql_container.audit_events.name
+}
+
+output "sql_server_fqdn" {
+  description = "Azure SQL logical server FQDN. Public access remains disabled until private networking is configured."
+  value       = azurerm_mssql_server.relational.fully_qualified_domain_name
+}
+
+output "sql_database_name" {
+  description = "Azure SQL relational database name."
+  value       = azapi_resource.relational_database.name
+}
+
+output "evidence_storage_account_name" {
+  description = "Storage account containing private user evidence documents."
+  value       = azurerm_storage_account.evidence.name
+}
+
+output "evidence_storage_container_name" {
+  description = "Private Blob container for user evidence documents."
+  value       = azurerm_storage_container.evidence_documents.name
 }
 
 output "key_vault_uri" {
